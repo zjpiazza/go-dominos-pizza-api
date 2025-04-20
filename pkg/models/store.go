@@ -1,7 +1,12 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/zjpiazza/go-dominos-pizza-api/pkg/utils"
 )
@@ -58,15 +63,48 @@ func (s *Store) GetMenu(lang string) (*Menu, error) {
 	menu := &Menu{}
 
 	// Get menu from API
-	url := strings.Replace(utils.URLs.Store.Menu, "${storeID}", s.StoreID, -1)
-	url = strings.Replace(url, "${lang}", lang, -1)
+	url := fmt.Sprintf("https://order.dominos.com/power/store/%s/menu?lang=%s&structured=true",
+		s.StoreID, lang)
 
-	response, err := utils.Get(url)
+	// Create request
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
+	// Set headers - these are critical for the Dominos API to respond correctly
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36")
+	req.Header.Set("Origin", "https://order.dominos.com")
+	req.Header.Set("Referer", "https://order.dominos.com/")
+
+	// Send request
+	client := &http.Client{Timeout: time.Second * 30}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse JSON response
+	var response map[string]interface{}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set formatted data in the menu struct
 	menu.SetFormatted(response)
+
+	// Also store the raw response for direct access
+	menu.SetDominosAPIResponse(response)
 
 	return menu, nil
 }
